@@ -17,74 +17,90 @@ import (
 // and aggregating the events, this handler is responsible for the actual work.
 func KoboldHandler(ctx context.Context, cache string, g model.TaskGroup, runner HookRunner) ([]string, error) {
 	var (
-		changes  []krm.Change
-		warnings []string
-		msg      string
+		allChanges  []krm.Change
+		allWarnings []string
+		lastMsg     string
+		destBranch  string
 	)
 
 	if err := git.Switch(ctx, cache, g.RepoUri.Ref); err != nil {
 		return nil, fmt.Errorf("git switch: %#q => %#q: %w", g.RepoUri.Repo, g.RepoUri.Ref, err)
 	}
 
-	changes, warnings, err := krm.Pipeline(ctx, filepath.Join(cache, g.RepoUri.Pkg), g.Msgs...)
-	if err != nil {
-		return nil, fmt.Errorf("krm pipeline: %w", err)
+	pkgPath := filepath.Join(cache, g.RepoUri.Pkg)
+
+	for _, ref := range g.Msgs {
+		changes, warnings, err := krm.Pipeline(ctx, pkgPath, ref)
+		if err != nil {
+			return nil, fmt.Errorf("krm pipeline: %w", err)
+		}
+
+		allWarnings = append(allWarnings, warnings...)
+
+		if len(changes) == 0 {
+			continue
+		}
+
+		// On the first change, set up the destination branch.
+		if destBranch == "" {
+			if g.DestBranch.Valid {
+				destBranch = g.DestBranch.String + "-" + g.Fingerprint
+				if err := git.CheckoutB(ctx, cache, destBranch); err != nil {
+					return nil, fmt.Errorf("git checkout -b: %w", err)
+				}
+			} else {
+				destBranch = g.RepoUri.Ref
+			}
+		}
+
+		msg, err := commitMessage(changes)
+		if err != nil {
+			return nil, fmt.Errorf("get commit message: %w", err)
+		}
+
+		if err := git.AddRoot(ctx, cache); err != nil {
+			return nil, fmt.Errorf("git add: %w", err)
+		}
+
+		if err := git.Commit(ctx, cache, msg); err != nil {
+			return nil, fmt.Errorf("git commit: %w", err)
+		}
+
+		allChanges = append(allChanges, changes...)
+		lastMsg = msg
 	}
 
-	if len(changes) < 1 {
+	if len(allChanges) == 0 {
 		return nil, nil
 	}
 
-	if g.DestBranch.Valid {
-		g.DestBranch.String = g.DestBranch.String + "-" + g.Fingerprint
-		if err := git.CheckoutB(ctx, cache, g.DestBranch.String); err != nil {
-			return nil, fmt.Errorf("git checkout -b: %w", err)
-		}
-	} else {
-		g.DestBranch.String = g.RepoUri.Ref
-		g.DestBranch.Valid = true
-	}
-
-	msg, err = commitMessage(changes)
-	if err != nil {
-		return nil, fmt.Errorf("get commit message: %w", err)
-	}
-
-	if err := git.Publish(ctx, cache, g.DestBranch.String, msg); err != nil {
-		return nil, fmt.Errorf("git publish: %w", err)
+	if err := git.Push(ctx, cache, destBranch); err != nil {
+		return nil, fmt.Errorf("git push: %w", err)
 	}
 
 	metricGitPush.With(prometheus.Labels{"repo": g.RepoUri.Repo}).Inc()
 
-	if runner == nil || len(changes) == 0 {
-		return warnings, nil
+	if runner == nil {
+		return allWarnings, nil
 	}
 
-	if err := runner.Run(g, msg, changes, warnings); err != nil {
-		return warnings, fmt.Errorf("hook: %w", err)
+	if err := runner.Run(g, lastMsg, allChanges, allWarnings); err != nil {
+		return allWarnings, fmt.Errorf("hook: %w", err)
 	}
 
-	return warnings, nil
+	return allWarnings, nil
 }
 
 func commitMessage(changes []krm.Change) (string, error) {
-	seen := make(map[string]struct{})
-
 	msg := strings.Builder{}
 	if _, err := msg.WriteString("chore(kobold): Update image refs\n"); err != nil {
 		return "", fmt.Errorf("write header: %w", err)
 	}
 
 	for _, change := range changes {
-		if _, ok := seen[change.Repo]; ok {
-			continue
-		}
-
 		if _, err := msg.WriteString(fmt.Sprintf(" * %s: %s\n", change.Repo, change.Description)); err != nil {
 			return "", fmt.Errorf("write change: %w", err)
 		}
-
-		seen[change.Repo] = struct{}{}
 	}
 
 	return msg.String()[:msg.Len()-1], nil

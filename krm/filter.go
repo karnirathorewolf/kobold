@@ -129,7 +129,9 @@ func (i *ImageRefUpdateFilter) Filter(nodes []*yaml.RNode) ([]*yaml.RNode, error
 				continue
 			}
 			mn.Value.YNode().Value = v
-			lastChange = change
+			if change.Description != "" {
+				lastChange = change
+			}
 		}
 
 		if originalValue != mn.Value.YNode().Value {
