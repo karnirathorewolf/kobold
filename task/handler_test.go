@@ -63,7 +63,6 @@ func TestGetCommitMessage(t *testing.T) {
 			want:    "chore(kobold): Update image refs\n * busybox: busybox:1.0.0 -> busybox:1.0.1",
 			wantErr: false,
 		},
-
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
