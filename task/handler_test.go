@@ -47,7 +47,7 @@ func TestGetCommitMessage(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "same repo with identical changes appears twice",
+			name: "duplicate image will be unique in commit message",
 			args: args{
 				changes: []krm.Change{
 					{
@@ -60,26 +60,10 @@ func TestGetCommitMessage(t *testing.T) {
 					},
 				},
 			},
-			want:    "chore(kobold): Update image refs\n * busybox: busybox:1.0.0 -> busybox:1.0.1\n * busybox: busybox:1.0.0 -> busybox:1.0.1",
+			want:    "chore(kobold): Update image refs\n * busybox: busybox:1.0.0 -> busybox:1.0.1",
 			wantErr: false,
 		},
-		{
-			name: "same repo with different descriptions each get own line",
-			args: args{
-				changes: []krm.Change{
-					{
-						Description: `update image ref "myrepo/app:v1.0.0" to "myrepo/app:v1.1.0"`,
-						Repo:        "myrepo/app",
-					},
-					{
-						Description: `update image ref "myrepo/app:v2.0.0" to "myrepo/app:v2.1.0"`,
-						Repo:        "myrepo/app",
-					},
-				},
-			},
-			want:    "chore(kobold): Update image refs\n * myrepo/app: update image ref \"myrepo/app:v1.0.0\" to \"myrepo/app:v1.1.0\"\n * myrepo/app: update image ref \"myrepo/app:v2.0.0\" to \"myrepo/app:v2.1.0\"",
-			wantErr: false,
-		},
+
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

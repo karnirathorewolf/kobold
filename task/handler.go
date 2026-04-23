@@ -68,15 +68,23 @@ func KoboldHandler(ctx context.Context, cache string, g model.TaskGroup, runner 
 }
 
 func commitMessage(changes []krm.Change) (string, error) {
+	seen := make(map[string]struct{})
+
 	msg := strings.Builder{}
 	if _, err := msg.WriteString("chore(kobold): Update image refs\n"); err != nil {
 		return "", fmt.Errorf("write header: %w", err)
 	}
 
 	for _, change := range changes {
+		if _, ok := seen[change.Repo]; ok {
+			continue
+		}
+
 		if _, err := msg.WriteString(fmt.Sprintf(" * %s: %s\n", change.Repo, change.Description)); err != nil {
 			return "", fmt.Errorf("write change: %w", err)
 		}
+
+		seen[change.Repo] = struct{}{}
 	}
 
 	return msg.String()[:msg.Len()-1], nil
